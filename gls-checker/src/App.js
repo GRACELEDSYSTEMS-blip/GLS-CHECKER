@@ -1,12 +1,16 @@
 import { useState, useEffect, useRef } from "react";
+import { db } from "./firebase";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
-// ── STORAGE (localStorage for real deployment) ───────────
-function loadData(key) {
-  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; }
-  catch { return null; }
+// ── FIRESTORE HELPERS ────────────────────────────────────
+async function loadData(key) {
+  try {
+    const snap = await getDoc(doc(db, "gls", key));
+    return snap.exists() ? snap.data().value : null;
+  } catch { return null; }
 }
-function saveData(key, val) {
-  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+async function saveData(key, val) {
+  try { await setDoc(doc(db, "gls", key), { value: val }); } catch(e) { console.error(e); }
 }
 
 // ── COST TIER ────────────────────────────────────────────
@@ -80,6 +84,8 @@ const S = {
   col:      { flex:1, minWidth:0 },
   btnGold:  { width:"100%", padding:"13px", background:"linear-gradient(135deg,#C9A84C,#E8C96A)", border:"none",
               borderRadius:12, fontWeight:800, fontSize:15, color:"#0A1F5C", cursor:"pointer" },
+  btnNavy:  { width:"100%", padding:"13px", background:"#0A1F5C", border:"none", borderRadius:12,
+              fontWeight:700, fontSize:15, color:"#fff", cursor:"pointer" },
   btnWA:    { flex:1, padding:"13px", background:"#25D366", border:"none", borderRadius:12,
               fontWeight:700, fontSize:14, color:"#fff", cursor:"pointer", display:"flex",
               alignItems:"center", justifyContent:"center", gap:6 },
@@ -91,7 +97,7 @@ const S = {
                  display:"flex", alignItems:"center", justifyContent:"center", gap:8,
                  transition:"background 0.3s", marginTop:10 }),
   btnRed:   { padding:"8px 14px", background:"#FEF2F2", border:"1px solid #FECACA", borderRadius:8,
-              fontWeight:700, fontSize:12, color:"#DC2626", cursor:"pointer" },
+              fontWeight:700, fontSize:11, color:"#DC2626", cursor:"pointer" },
   msgBox:   { background:"#F0F4FF", border:"1.5px solid #C7D2FE", borderRadius:12, padding:16, fontSize:13,
               lineHeight:1.7, whiteSpace:"pre-wrap", fontFamily:"monospace", color:"#1A1A2E",
               marginBottom:12, maxHeight:260, overflowY:"auto" },
@@ -108,8 +114,7 @@ const S = {
   hAmt:     { fontSize:14, fontWeight:800, color:"#0A1F5C" },
   badge: t=>({ display:"inline-block", padding:"2px 8px", borderRadius:20, fontSize:10, fontWeight:700,
                background: t==="WASSCE"?"#EEF2FF":"#FFF7ED",
-               color: t==="WASSCE"?"#3730A3":"#C2410C",
-               letterSpacing:0.5, marginLeft:4 }),
+               color: t==="WASSCE"?"#3730A3":"#C2410C", letterSpacing:0.5, marginLeft:4 }),
   goldBar:  { height:3, background:"linear-gradient(90deg,#C9A84C,#E8C96A)", borderRadius:2, marginBottom:14 },
   poolRow:  { display:"flex", justifyContent:"space-between", alignItems:"center",
               padding:"9px 0", borderBottom:"1px solid #F3F4F6", fontSize:13 },
@@ -129,22 +134,21 @@ const S = {
   codeBox:  { background:"#EEF2FF", borderRadius:8, padding:"8px 12px", fontSize:12,
               fontFamily:"monospace", color:"#1A1A2E", marginTop:8, lineHeight:1.8 },
   qtyCard: avail=>({ flex:1, borderRadius:12, padding:"14px 12px", textAlign:"center",
-              background: avail?"#F0F9FF":"#FEF2F2",
-              border:`1.5px solid ${avail?"#BAE6FD":"#FECACA"}` }),
-  qtyLabel: { fontSize:11, fontWeight:700, letterSpacing:0.5, marginBottom:8, textTransform:"uppercase" },
+              background: avail?"#F0F9FF":"#FEF2F2", border:`1.5px solid ${avail?"#BAE6FD":"#FECACA"}` }),
   qtyControls:{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginTop:6 },
   qtyBtn:   { width:32, height:32, borderRadius:8, border:"none", cursor:"pointer",
-              fontWeight:900, fontSize:18, background:"#0A1F5C", color:"#fff",
-              display:"flex", alignItems:"center", justifyContent:"center" },
+              fontWeight:900, fontSize:18, background:"#0A1F5C", color:"#fff" },
   qtyVal:   { fontSize:22, fontWeight:900, minWidth:32, textAlign:"center" },
+  syncing:  { textAlign:"center", padding:"60px 20px", color:"#9CA3AF", fontSize:14 },
 };
 
 export default function App() {
-  const [tab, setTab] = useState("deliver");
+  const [tab, setTab]             = useState("deliver");
   const [pool, setPool]           = useState({ wassce:[], bece:[] });
   const [customers, setCustomers] = useState([]);
   const [sales, setSales]         = useState([]);
   const [loaded, setLoaded]       = useState(false);
+  const [syncing, setSyncing]     = useState(false);
 
   const [custForm, setCustForm]   = useState({ name:"", phone:"" });
   const [wQty, setWQty]           = useState(0);
@@ -158,23 +162,20 @@ export default function App() {
   const [uploadMsg, setUploadMsg]   = useState("");
   const [uploadErr, setUploadErr]   = useState("");
   const fileRef = useRef();
+  const [search, setSearch]         = useState("");
 
-  const [search, setSearch] = useState("");
-
-  // ── LOAD from localStorage ──
+  // ── LOAD from Firestore ──
   useEffect(() => {
-    const p = loadData("gls:pool");
-    const c = loadData("gls:customers");
-    const s = loadData("gls:sales");
-    if (p) setPool(p);
-    if (c) setCustomers(c);
-    if (s) setSales(s);
-    setLoaded(true);
+    (async () => {
+      const p = await loadData("pool");
+      const c = await loadData("customers");
+      const s = await loadData("sales");
+      if (p) setPool(p);
+      if (c) setCustomers(c);
+      if (s) setSales(s);
+      setLoaded(true);
+    })();
   }, []);
-
-  useEffect(() => { if (loaded) saveData("gls:pool",      pool);      }, [pool,      loaded]);
-  useEffect(() => { if (loaded) saveData("gls:customers", customers); }, [customers, loaded]);
-  useEffect(() => { if (loaded) saveData("gls:sales",     sales);     }, [sales,     loaded]);
 
   const wLeft = pool.wassce.filter(c => !c.used).length;
   const bLeft = pool.bece.filter(c => !c.used).length;
@@ -183,17 +184,19 @@ export default function App() {
   function handleFile(file) {
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = e => {
+    reader.onload = async e => {
       const codes = parseCSV(e.target.result);
-      if (codes.length === 0) { setUploadErr("No valid codes found. Check the CSV format."); return; }
+      if (codes.length === 0) { setUploadErr("No valid codes found."); return; }
       const key = uploadType.toLowerCase();
-      setPool(prev => {
-        const existing = prev[key] || [];
-        const existingSerials = new Set(existing.map(c => c.serial));
-        const fresh = codes.filter(c => !existingSerials.has(c.serial));
-        return { ...prev, [key]: [...existing, ...fresh] };
-      });
-      setUploadMsg(`✅ ${codes.length} ${uploadType} checker${codes.length > 1 ? "s" : ""} loaded!`);
+      const existing = pool[key] || [];
+      const existingSerials = new Set(existing.map(c => c.serial));
+      const fresh = codes.filter(c => !existingSerials.has(c.serial));
+      const newPool = { ...pool, [key]: [...existing, ...fresh] };
+      setPool(newPool);
+      setSyncing(true);
+      await saveData("pool", newPool);
+      setSyncing(false);
+      setUploadMsg(`✅ ${fresh.length} ${uploadType} checker${fresh.length > 1 ? "s" : ""} loaded!`);
       setUploadErr("");
       setTimeout(() => setUploadMsg(""), 4000);
     };
@@ -201,7 +204,7 @@ export default function App() {
   }
 
   // ── DELIVER ──
-  function deliver() {
+  async function deliver() {
     setDeliverErr("");
     if (!custForm.name.trim())    { setDeliverErr("Please enter the customer's name."); return; }
     if (!custForm.phone.trim())   { setDeliverErr("Please enter the customer's phone number."); return; }
@@ -213,14 +216,15 @@ export default function App() {
     const wCheckers = pool.wassce.filter(c => !c.used).slice(0, wQty);
     const bCheckers = pool.bece.filter(c => !c.used).slice(0, bQty);
 
-    setPool(prev => {
-      const wUpdated = [...prev.wassce]; const bUpdated = [...prev.bece];
-      let wc = 0, bc = 0;
-      wUpdated.forEach((c,i) => { if (!c.used && wc < wQty) { wUpdated[i] = {...c, used:true}; wc++; } });
-      bUpdated.forEach((c,i) => { if (!c.used && bc < bQty) { bUpdated[i] = {...c, used:true}; bc++; } });
-      return { wassce: wUpdated, bece: bUpdated };
-    });
+    // Mark used
+    const wUpdated = [...pool.wassce]; const bUpdated = [...pool.bece];
+    let wc = 0, bc = 0;
+    wUpdated.forEach((c,i) => { if (!c.used && wc < wQty) { wUpdated[i] = {...c, used:true}; wc++; } });
+    bUpdated.forEach((c,i) => { if (!c.used && bc < bQty) { bUpdated[i] = {...c, used:true}; bc++; } });
+    const newPool = { wassce: wUpdated, bece: bUpdated };
+    setPool(newPool);
 
+    // Build message
     let checkerSection = "";
     if (wCheckers.length > 0) {
       checkerSection += `\n📘 WASSCE CHECKER${wCheckers.length > 1 ? "S" : ""}\n──────────────────`;
@@ -266,25 +270,33 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
       ...wCheckers.map(c => ({...c, type:"WASSCE"})),
       ...bCheckers.map(c => ({...c, type:"BECE"}))
     ];
-
-    const entry = {
-      id: Date.now(), name: custForm.name, phone: custForm.phone,
-      checkers: allCheckers, wQty, bQty, totalQty,
-      date, time, iso, totalPrice: +(totalQty * SELL).toFixed(2),
-    };
-
-    setCustomers(prev => [...prev, entry]);
+    const entry = { id: Date.now(), name: custForm.name, phone: custForm.phone,
+      checkers: allCheckers, wQty, bQty, totalQty, date, time, iso,
+      totalPrice: +(totalQty * SELL).toFixed(2) };
 
     const wCost = getCostTier(pool.wassce.length);
     const bCost = getCostTier(pool.bece.length);
-    if (wQty > 0) setSales(prev => [...prev, { id: Date.now()+1, name: custForm.name, phone: custForm.phone, type:"WASSCE", qty: wQty, price: SELL, cost: wCost, profit: +((SELL-wCost)*wQty).toFixed(2), date, time }]);
-    if (bQty > 0) setSales(prev => [...prev, { id: Date.now()+2, name: custForm.name, phone: custForm.phone, type:"BECE",  qty: bQty, price: SELL, cost: bCost, profit: +((SELL-bCost)*bQty).toFixed(2), date, time }]);
+    const newSales = [...sales];
+    if (wQty > 0) newSales.push({ id: Date.now()+1, name: custForm.name, phone: custForm.phone, type:"WASSCE", qty: wQty, price: SELL, cost: wCost, profit: +((SELL-wCost)*wQty).toFixed(2), date, time });
+    if (bQty > 0) newSales.push({ id: Date.now()+2, name: custForm.name, phone: custForm.phone, type:"BECE",  qty: bQty, price: SELL, cost: bCost, profit: +((SELL-bCost)*bQty).toFixed(2), date, time });
+    const newCustomers = [...customers, entry];
 
+    setCustomers(newCustomers);
+    setSales(newSales);
     setMessage(msg);
     setLastEntry({ ...entry, msg });
     setCopied(false);
     setCustForm({ name:"", phone:"" });
     setWQty(0); setBQty(0);
+
+    // Save to Firestore
+    setSyncing(true);
+    await Promise.all([
+      saveData("pool", newPool),
+      saveData("customers", newCustomers),
+      saveData("sales", newSales),
+    ]);
+    setSyncing(false);
   }
 
   function openWhatsAppBusiness(msg, phone) {
@@ -292,16 +304,21 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
     const intl  = clean.startsWith("0") ? "233" + clean.slice(1) : clean;
     window.open(`https://api.whatsapp.com/send?phone=${intl}&text=${encodeURIComponent(msg)}`, "_blank");
   }
-
   function openSMS(msg, phone) {
     const clean = phone.replace(/\D/g, "");
     window.open(`sms:${clean}?body=${encodeURIComponent(msg)}`, "_blank");
   }
-
   function copyMsg() {
     navigator.clipboard.writeText(message);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
+  }
+
+  async function clearPool(key) {
+    if (!window.confirm(`Clear ALL ${key.toUpperCase()} checkers? This cannot be undone.`)) return;
+    const newPool = { ...pool, [key]: [] };
+    setPool(newPool);
+    await saveData("pool", newPool);
   }
 
   const totalRevenue = sales.reduce((a,s) => a + s.price * s.qty, 0);
@@ -326,15 +343,24 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
     const blob = new Blob([csv], { type:"text/csv" });
     const a    = document.createElement("a");
     a.href     = URL.createObjectURL(blob);
-    a.download = "GLS_Sales_Export.csv";
-    a.click();
+    a.download = "GLS_Sales_Export.csv"; a.click();
   }
+
+  if (!loaded) return (
+    <div style={S.syncing}>
+      <div style={{fontSize:32, marginBottom:12}}>⏳</div>
+      <div>Loading your data...</div>
+    </div>
+  );
 
   return (
     <div style={S.app}>
       <div style={S.header}>
         <div style={S.brand}>GRACE-LED SYSTEMS</div>
-        <div style={S.tag}>Working Heartily, Serving Faithfully</div>
+        <div style={S.tag}>
+          Working Heartily, Serving Faithfully
+          {syncing && <span style={{marginLeft:8, fontSize:10, color:"#C9A84C"}}>● Syncing...</span>}
+        </div>
         <div style={S.tabs}>
           <button style={S.tab(tab==="deliver")}   onClick={()=>setTab("deliver")}>📲 DELIVER</button>
           <button style={S.tab(tab==="stock")}     onClick={()=>setTab("stock")}>📦 STOCK</button>
@@ -362,7 +388,6 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
               <div style={S.goldBar}/>
               <div style={S.secTitle}><SendIcon/> New Delivery</div>
               {deliverErr && <div style={S.errBox}>{deliverErr}</div>}
-
               <div style={S.row}>
                 <div style={S.col}>
                   <label style={S.label}>Customer Name *</label>
@@ -375,11 +400,10 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
                     value={custForm.phone} onChange={e=>setCustForm({...custForm, phone:e.target.value})}/>
                 </div>
               </div>
-
               <label style={{...S.label, marginBottom:10}}>Number of Checkers</label>
               <div style={{display:"flex", gap:12, marginBottom:16}}>
                 <div style={S.qtyCard(wLeft>0)}>
-                  <div style={{...S.qtyLabel, color:wLeft>0?"#0369A1":"#DC2626"}}>📘 WASSCE</div>
+                  <div style={{fontSize:11, fontWeight:700, color:wLeft>0?"#0369A1":"#DC2626", marginBottom:4}}>📘 WASSCE</div>
                   <div style={{fontSize:10, color:"#9CA3AF", marginBottom:6}}>{wLeft} available</div>
                   <div style={S.qtyControls}>
                     <button style={S.qtyBtn} onClick={()=>setWQty(q=>Math.max(0,q-1))}>−</button>
@@ -388,7 +412,7 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
                   </div>
                 </div>
                 <div style={S.qtyCard(bLeft>0)}>
-                  <div style={{...S.qtyLabel, color:bLeft>0?"#C2410C":"#DC2626"}}>📗 BECE</div>
+                  <div style={{fontSize:11, fontWeight:700, color:bLeft>0?"#C2410C":"#DC2626", marginBottom:4}}>📗 BECE</div>
                   <div style={{fontSize:10, color:"#9CA3AF", marginBottom:6}}>{bLeft} available</div>
                   <div style={S.qtyControls}>
                     <button style={S.qtyBtn} onClick={()=>setBQty(q=>Math.max(0,q-1))}>−</button>
@@ -397,14 +421,12 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
                   </div>
                 </div>
               </div>
-
               {(wQty+bQty)>0 && (
                 <div style={{background:"#F0F9FF", border:"1px solid #BAE6FD", borderRadius:10, padding:"10px 14px", marginBottom:14, display:"flex", justifyContent:"space-between"}}>
                   <span style={{fontSize:13, color:"#0369A1", fontWeight:600}}>Total: {wQty+bQty} checker{wQty+bQty>1?"s":""}</span>
                   <span style={{fontSize:15, fontWeight:800, color:"#0A1F5C"}}>GH¢{((wQty+bQty)*SELL).toFixed(2)}</span>
                 </div>
               )}
-
               <button style={S.btnGold} onClick={deliver}>⚡ Deliver Checker{(wQty+bQty)>1?"s":""}</button>
             </div>
 
@@ -414,7 +436,7 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
                 <div style={S.secTitle}>✦ Ready to Send</div>
                 {lastEntry && (
                   <div style={{background:"#F0FDF4", border:"1px solid #BBF7D0", borderRadius:10, padding:"10px 14px", marginBottom:12, fontSize:12}}>
-                    <b style={{color:"#065F46"}}>✅ Auto-saved</b> · {lastEntry.totalQty} checker{lastEntry.totalQty>1?"s":""} · {lastEntry.date} {lastEntry.time}
+                    <b style={{color:"#065F46"}}>✅ Saved to cloud</b> · {lastEntry.totalQty} checker{lastEntry.totalQty>1?"s":""} · {lastEntry.date} {lastEntry.time}
                   </div>
                 )}
                 <div style={S.msgBox}>{message}</div>
@@ -467,15 +489,7 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
                     <div style={{display:"flex", alignItems:"center", gap:8}}>
                       <div style={{fontSize:12, fontWeight:700, color:"#0A1F5C"}}>{left}/{pool[key].length} left</div>
                       {pool[key].length > 0 && (
-                        <button style={{padding:"4px 10px", background:"#FEF2F2", border:"1px solid #FECACA",
-                          borderRadius:8, fontWeight:700, fontSize:11, color:"#DC2626", cursor:"pointer"}}
-                          onClick={()=>{
-                            if(window.confirm(`Clear ALL ${label} checkers? This cannot be undone.`)){
-                              setPool(prev => ({...prev, [key]:[]}));
-                            }
-                          }}>
-                          🗑 Clear
-                        </button>
+                        <button style={S.btnRed} onClick={()=>clearPool(key)}>🗑 Clear</button>
                       )}
                     </div>
                   </div>
@@ -514,7 +528,6 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
                 <div style={{...S.statLbl, color:totalProfit>=0?"#059669":"#DC2626"}}>Profit</div>
               </div>
             </div>
-
             <div style={S.card}>
               <div style={S.goldBar}/>
               <div style={S.secTitle}>Breakdown by Type</div>
@@ -526,7 +539,7 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
                 return (
                   <div key={t} style={S.histRow}>
                     <div>
-                      <div style={{display:"flex",alignItems:"center"}}>
+                      <div style={{display:"flex", alignItems:"center"}}>
                         <span style={S.hLabel}>{t}</span>
                         <span style={S.badge(t)}>{t}</span>
                       </div>
@@ -537,7 +550,6 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
                 );
               })}
             </div>
-
             {sales.length > 0 && (
               <div style={S.card}>
                 <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14}}>
@@ -577,14 +589,12 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
                 </div>
               </div>
             </div>
-
             <div style={S.searchBox}>
               <SearchIcon/>
               <input style={{flex:1, border:"none", background:"transparent", fontSize:14, outline:"none", color:"#1A1A2E"}}
                 placeholder="Search name, phone or serial..."
                 value={search} onChange={e=>setSearch(e.target.value)}/>
             </div>
-
             {filtered.length===0
               ? <div style={{textAlign:"center", color:"#9CA3AF", padding:"40px 0", fontSize:14}}>
                   <UserIcon/>
@@ -612,7 +622,6 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
             }
           </>
         )}
-
       </div>
     </div>
   );
