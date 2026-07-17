@@ -464,7 +464,20 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
                 <div key={key} style={S.card}>
                   <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14}}>
                     <div style={S.secTitle}><BoxIcon/> {label} Pool</div>
-                    <div style={{fontSize:12, fontWeight:700, color:"#0A1F5C"}}>{left}/{pool[key].length} left</div>
+                    <div style={{display:"flex", alignItems:"center", gap:8}}>
+                      <div style={{fontSize:12, fontWeight:700, color:"#0A1F5C"}}>{left}/{pool[key].length} left</div>
+                      {pool[key].length > 0 && (
+                        <button style={{padding:"4px 10px", background:"#FEF2F2", border:"1px solid #FECACA",
+                          borderRadius:8, fontWeight:700, fontSize:11, color:"#DC2626", cursor:"pointer"}}
+                          onClick={()=>{
+                            if(window.confirm(`Clear ALL ${label} checkers? This cannot be undone.`)){
+                              setPool(prev => ({...prev, [key]:[]}));
+                            }
+                          }}>
+                          🗑 Clear
+                        </button>
+                      )}
+                    </div>
                   </div>
                   {pool[key].length === 0
                     ? <div style={{color:"#9CA3AF", fontSize:13, textAlign:"center", padding:"12px 0"}}>No {label} checkers loaded yet.</div>
