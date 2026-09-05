@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Pillow
+        run: python -m pip install pillow
       - name: Generate app icons and update PWA metadata
         run: |
           python - <<'PY'
@@ -39,7 +41,7 @@ jobs:
                   small = ImageFont.load_default()
               text = 'GLS'
               box = d.textbbox((0,0), text, font=font)
-              tw, th = box[2]-box[0], box[3]-box[1]
+              tw = box[2]-box[0]
               d.text(((size-tw)/2, size*0.30), text, font=font, fill=white)
               label = 'CHECKER'
               box2 = d.textbbox((0,0), label, font=small)
