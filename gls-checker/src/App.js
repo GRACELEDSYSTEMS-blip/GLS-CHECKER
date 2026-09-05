@@ -94,7 +94,10 @@ async function parseCheckerPDF(file) {
   for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
     const page = await pdf.getPage(pageNo);
     const content = await page.getTextContent();
-    pages.push(content.items.map((item) => item.str).join("\n"));
+    const items = content.items
+      .map((item) => String(item.str || "").trim())
+      .filter(Boolean);
+    pages.push(items.join("\n"));
   }
 
   const text = pages.join("\n");
@@ -105,15 +108,39 @@ async function parseCheckerPDF(file) {
       : null;
 
   const codes = [];
-  const regex = /Serial\s*:\s*([A-Z0-9-]+)[\s\S]{0,100}?PIN\s*:\s*([0-9]{6,20})/gi;
-  let match;
+  const seen = new Set();
+  const patterns = [
+    /Serial(?:\s+Number)?\s*[:#-]?\s*([A-Z]{2,6}[A-Z0-9-]{5,40})[\s\S]{0,180}?PIN\s*[:#-]?\s*([0-9]{6,20})/gi,
+    /([A-Z]{2,6}[A-Z0-9-]{5,40})[\s\S]{0,80}?PIN\s*[:#-]?\s*([0-9]{6,20})/gi,
+  ];
 
-  while ((match = regex.exec(text)) !== null) {
-    codes.push({
-      serial: match[1].trim(),
-      pin: match[2].trim(),
-      used: false,
-    });
+  patterns.forEach((regex) => {
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const serial = match[1].trim().toUpperCase();
+      const pin = match[2].trim();
+      const key = `${serial}|${pin}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        codes.push({ serial, pin, used: false });
+      }
+    }
+  });
+
+  // Fallback for PDFs that split labels/values across separate text items.
+  if (codes.length === 0) {
+    const serials = [...text.matchAll(/(?:Serial(?:\s+Number)?\s*[:#-]?\s*)?([A-Z]{2,6}[A-Z0-9-]{5,40})/gi)]
+      .map((m) => m[1].trim().toUpperCase())
+      .filter((v) => /\d/.test(v));
+    const pins = [...text.matchAll(/PIN\s*[:#-]?\s*([0-9]{6,20})/gi)].map((m) => m[1].trim());
+    const count = Math.min(serials.length, pins.length);
+    for (let i = 0; i < count; i += 1) {
+      const key = `${serials[i]}|${pins[i]}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        codes.push({ serial: serials[i], pin: pins[i], used: false });
+      }
+    }
   }
 
   return { codes, detectedType };
@@ -616,6 +643,8 @@ export default function App() {
   const [uploadBusy, setUploadBusy] = useState(false);
 
   const fileRef = useRef();
+  const backupRef = useRef();
+  const lowStockNoticeRef = useRef("");
 
   const [search, setSearch] = useState("");
 
@@ -628,6 +657,10 @@ export default function App() {
     const saved = Number(localStorage.getItem("gls_lock_minutes"));
     return [1, 5, 10, 15, 30].includes(saved) ? saved : 5;
   });
+
+  const [lowStockNotifications, setLowStockNotifications] = useState(() =>
+    localStorage.getItem("gls_low_stock_notifications") === "true"
+  );
 
   // Each checker type remembers its own Stock view.
   const [stockView, setStockView] = useState({
@@ -680,6 +713,11 @@ export default function App() {
     localStorage.setItem("gls_lock_minutes", String(lockMinutes));
   }, [lockMinutes]);
 
+
+  useEffect(() => {
+    localStorage.setItem("gls_low_stock_notifications", String(lowStockNotifications));
+  }, [lowStockNotifications]);
+
   // ── LOAD DATA FROM FIRESTORE ──────────────────────────
   useEffect(() => {
     (async () => {
@@ -697,6 +735,26 @@ export default function App() {
 
   const wLeft = pool.wassce.filter((c) => !c.used).length;
   const bLeft = pool.bece.filter((c) => !c.used).length;
+
+  useEffect(() => {
+    if (!loaded || !lowStockNotifications || lowStockThreshold <= 0) return;
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+    const low = [];
+    if (wLeft <= lowStockThreshold) low.push(`WASSCE ${wLeft}`);
+    if (bLeft <= lowStockThreshold) low.push(`BECE ${bLeft}`);
+    const key = low.join("|");
+
+    if (key && key !== lowStockNoticeRef.current) {
+      new Notification("GLS Checker — Low stock", {
+        body: `Low stock: ${low.join(", ")}.`,
+        icon: "/icon-192.png",
+      });
+      lowStockNoticeRef.current = key;
+    }
+    if (!key) lowStockNoticeRef.current = "";
+  }, [loaded, lowStockNotifications, lowStockThreshold, wLeft, bLeft]);
+
 
   // ── SAVE HELPERS ──────────────────────────────────────
   async function persistPool(newPool) {
@@ -755,7 +813,12 @@ export default function App() {
         ...(pool.wassce || []).map((c) => c.serial.toUpperCase()),
         ...(pool.bece || []).map((c) => c.serial.toUpperCase()),
       ]);
+      const allExistingPins = new Set([
+        ...(pool.wassce || []).map((c) => String(c.pin || "").trim()),
+        ...(pool.bece || []).map((c) => String(c.pin || "").trim()),
+      ]);
       const seen = new Set();
+      const seenPins = new Set();
       const valid = [];
       let duplicates = 0;
       let invalid = 0;
@@ -770,12 +833,18 @@ export default function App() {
           return;
         }
 
-        if (seen.has(serial) || allExistingSerials.has(serial)) {
+        if (
+          seen.has(serial) ||
+          seenPins.has(pin) ||
+          allExistingSerials.has(serial) ||
+          allExistingPins.has(pin)
+        ) {
           duplicates += 1;
           return;
         }
 
         seen.add(serial);
+        seenPins.add(pin);
         valid.push({ serial, pin, used: false });
       });
 
@@ -1438,6 +1507,139 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
     window.alert("Sale undone. The checker(s) are back in Unused Stock.");
   }
 
+  function exportBackup() {
+    const backup = {
+      app: "GLS Checker",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      pool,
+      customers,
+      sales,
+      settings: {
+        lowStockThreshold,
+        lockMinutes,
+        lowStockNotifications,
+      },
+    };
+
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `GLS_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  async function importBackup(file) {
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text());
+      const validPool = parsed && parsed.pool && Array.isArray(parsed.pool.wassce) && Array.isArray(parsed.pool.bece);
+      const validCustomers = Array.isArray(parsed?.customers);
+      const validSales = Array.isArray(parsed?.sales);
+      if (!validPool || !validCustomers || !validSales) {
+        window.alert("This is not a valid GLS Checker backup file.");
+        return;
+      }
+
+      const ok = window.confirm(
+        `Restore this backup?\n\nWASSCE stock: ${parsed.pool.wassce.length}\nBECE stock: ${parsed.pool.bece.length}\nCustomer transactions: ${parsed.customers.length}\nSales records: ${parsed.sales.length}\n\nThis will replace the current app data.`
+      );
+      if (!ok) return;
+
+      setSyncing(true);
+      await Promise.all([
+        saveData("pool", parsed.pool),
+        saveData("customers", parsed.customers),
+        saveData("sales", parsed.sales),
+      ]);
+      setPool(parsed.pool);
+      setCustomers(parsed.customers);
+      setSales(parsed.sales);
+
+      if (parsed.settings) {
+        if (Number.isFinite(Number(parsed.settings.lowStockThreshold))) {
+          setLowStockThreshold(Number(parsed.settings.lowStockThreshold));
+        }
+        if ([1, 5, 10, 15, 30].includes(Number(parsed.settings.lockMinutes))) {
+          setLockMinutes(Number(parsed.settings.lockMinutes));
+        }
+        if (typeof parsed.settings.lowStockNotifications === "boolean") {
+          setLowStockNotifications(parsed.settings.lowStockNotifications);
+        }
+      }
+
+      setSyncing(false);
+      window.alert("Backup restored successfully.");
+    } catch (error) {
+      console.error(error);
+      setSyncing(false);
+      window.alert("Could not restore this backup file.");
+    }
+  }
+
+  async function editTransaction(entry) {
+    const nameInput = window.prompt("Edit customer name:", entry.name || "");
+    if (nameInput === null) return;
+    const phoneInput = window.prompt("Edit phone number:", entry.phone || "");
+    if (phoneInput === null) return;
+    const amountInput = window.prompt("Edit total amount paid (GH¢):", String(entry.totalPrice ?? ""));
+    if (amountInput === null) return;
+
+    const name = nameInput.trim();
+    const phone = phoneInput.trim();
+    const totalPrice = Number(amountInput);
+    if (!name || !phone || !Number.isFinite(totalPrice) || totalPrice < 0) {
+      window.alert("Please enter a valid name, phone number and total amount.");
+      return;
+    }
+
+    const unitPrice = entry.totalQty > 0 ? totalPrice / entry.totalQty : SELL;
+    const newCustomers = customers.map((c) =>
+      c.id === entry.id ? { ...c, name, phone, totalPrice: +totalPrice.toFixed(2) } : c
+    );
+    const isLegacyMatch = (sale) =>
+      !sale.transactionId &&
+      sale.name === entry.name &&
+      (sale.phone || "") === (entry.phone || "") &&
+      sale.date === entry.date &&
+      sale.time === entry.time;
+    const newSales = sales.map((sale) => {
+      const matches = sale.transactionId ? sale.transactionId === entry.id : isLegacyMatch(sale);
+      if (!matches) return sale;
+      const price = +unitPrice.toFixed(2);
+      return {
+        ...sale,
+        name,
+        phone,
+        price,
+        profit: +((price - sale.cost) * sale.qty).toFixed(2),
+      };
+    });
+
+    setCustomers(newCustomers);
+    setSales(newSales);
+    setSyncing(true);
+    await Promise.all([saveData("customers", newCustomers), saveData("sales", newSales)]);
+    setSyncing(false);
+    window.alert("Transaction updated.");
+  }
+
+  async function enableLowStockNotifications() {
+    if (!("Notification" in window)) {
+      window.alert("Notifications are not supported on this device/browser.");
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      setLowStockNotifications(true);
+      window.alert("Low-stock notifications enabled.");
+    } else {
+      setLowStockNotifications(false);
+      window.alert("Notification permission was not granted.");
+    }
+  }
+
   // ── FINANCE / SEARCH ───────────────────────────────────
   const totalRevenue = sales.reduce(
     (a, s) =>
@@ -1720,6 +1922,43 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
                 {[1, 5, 10, 15, 30].map(n => <option key={n} value={n}>{n} minute{n === 1 ? "" : "s"}</option>)}
               </select>
               <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 10, lineHeight: 1.5 }}>These settings are saved on this device.</div>
+
+              <div style={{ borderTop: "1px solid #E5E7EB", marginTop: 16, paddingTop: 16 }}>
+                <label style={S.label}>Low-stock notifications</label>
+                <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                  <button
+                    style={{ ...S.btnRed, flex: 1, color: "#0A1F5C", background: "#EEF2FF", borderColor: "#C7D2FE" }}
+                    onClick={enableLowStockNotifications}
+                  >
+                    {lowStockNotifications ? "✓ Notifications On" : "Enable Notifications"}
+                  </button>
+                  {lowStockNotifications && (
+                    <button style={S.btnRed} onClick={() => setLowStockNotifications(false)}>Turn Off</button>
+                  )}
+                </div>
+
+                <label style={S.label}>Backup & Restore</label>
+                <button style={{ ...S.btnGold, marginBottom: 8 }} onClick={exportBackup}>⬇ Download Full Backup</button>
+                <button
+                  style={{ ...S.btnRed, width: "100%", padding: "11px 12px", color: "#0A1F5C", background: "#EEF2FF", borderColor: "#C7D2FE" }}
+                  onClick={() => backupRef.current?.click()}
+                >
+                  ⬆ Restore Backup
+                </button>
+                <input
+                  ref={backupRef}
+                  type="file"
+                  accept=".json,application/json"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    importBackup(e.target.files[0]);
+                    e.target.value = "";
+                  }}
+                />
+                <div style={{ fontSize: 10, color: "#9CA3AF", marginTop: 8, lineHeight: 1.5 }}>
+                  Backup includes stock, customers, sales and these device settings. Restoring replaces current app data only after confirmation.
+                </div>
+              </div>
             </div>
           </>
         )}
@@ -3203,9 +3442,17 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
                       )}
                     </div>
 
-                    <button style={{ ...S.btnRed, width: "100%", marginTop: 10, padding: "10px 12px" }} onClick={() => undoTransaction(c)}>
-                      ↩ Undo This Sale
-                    </button>
+                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                      <button
+                        style={{ ...S.btnRed, flex: 1, padding: "10px 12px", color: "#0A1F5C", background: "#EEF2FF", borderColor: "#C7D2FE" }}
+                        onClick={() => editTransaction(c)}
+                      >
+                        ✏️ Edit Transaction
+                      </button>
+                      <button style={{ ...S.btnRed, flex: 1, padding: "10px 12px" }} onClick={() => undoTransaction(c)}>
+                        ↩ Undo Sale
+                      </button>
+                    </div>
 
                     <div style={S.codeBox}>
                       {c.checkers?.map(
