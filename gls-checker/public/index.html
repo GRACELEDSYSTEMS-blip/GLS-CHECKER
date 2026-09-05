@@ -2,16 +2,98 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0A1F5C" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="GLS Checker" />
     <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>GLS Checker — Grace-Led Systems</title>
+    <style>
+      .gls-mobile-nav {
+        position: fixed !important;
+        left: 50% !important;
+        bottom: 0 !important;
+        transform: translateX(-50%) !important;
+        width: 100% !important;
+        max-width: 540px !important;
+        display: grid !important;
+        grid-template-columns: repeat(4, 1fr) !important;
+        justify-content: initial !important;
+        background: rgba(255,255,255,.97) !important;
+        border-top: 1px solid #E5E7EB !important;
+        box-shadow: 0 -8px 24px rgba(10,31,92,.10) !important;
+        padding: 8px 8px max(8px, env(safe-area-inset-bottom)) !important;
+        box-sizing: border-box !important;
+        z-index: 9999 !important;
+        backdrop-filter: blur(12px);
+      }
+
+      .gls-mobile-nav button {
+        border-radius: 12px !important;
+        min-height: 48px !important;
+        padding: 8px 2px !important;
+        border: 0 !important;
+        font-size: 10px !important;
+        letter-spacing: .2px !important;
+      }
+
+      .gls-mobile-nav button[data-gls-active="true"] {
+        background: #EEF2FF !important;
+        color: #0A1F5C !important;
+      }
+
+      #root {
+        padding-bottom: 78px;
+      }
+
+      @media (min-width: 700px) {
+        .gls-mobile-nav {
+          bottom: 14px !important;
+          border: 1px solid #E5E7EB !important;
+          border-radius: 18px !important;
+          width: calc(100% - 28px) !important;
+        }
+      }
+    </style>
   </head>
   <body>
     <noscript>You need JavaScript enabled to use GLS Checker.</noscript>
     <div id="root"></div>
+    <script>
+      (function () {
+        const names = ["DELIVER", "STOCK", "FINANCE", "CUSTOMERS"];
+
+        function enhanceNavigation() {
+          const buttons = Array.from(document.querySelectorAll("button"));
+          const navButtons = names.map(name =>
+            buttons.find(btn => btn.textContent.trim().toUpperCase().endsWith(name))
+          );
+
+          if (navButtons.every(Boolean)) {
+            const parent = navButtons[0].parentElement;
+            if (parent && navButtons.every(btn => btn.parentElement === parent)) {
+              parent.classList.add("gls-mobile-nav");
+              navButtons.forEach(btn => {
+                const style = getComputedStyle(btn);
+                const active = style.backgroundColor !== "rgba(0, 0, 0, 0)" &&
+                  style.backgroundColor !== "transparent";
+                btn.dataset.glsActive = active ? "true" : "false";
+              });
+            }
+          }
+        }
+
+        enhanceNavigation();
+        const observer = new MutationObserver(enhanceNavigation);
+        observer.observe(document.getElementById("root"), {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["style"]
+        });
+      })();
+    </script>
   </body>
 </html>
