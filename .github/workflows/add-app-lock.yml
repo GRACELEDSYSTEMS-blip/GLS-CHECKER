@@ -20,7 +20,7 @@ jobs:
       - name: Build app
         working-directory: gls-checker
         run: |
-          npm ci
+          npm install --no-audit --no-fund
           npm run build
       - name: Commit app lock
         run: |
