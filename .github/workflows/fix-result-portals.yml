@@ -1,71 +1,19 @@
-name: One-time result portal fix
-
-on:
-  push:
-    branches:
-      - main
-
+name: Fix result portals
+on: [push]
 permissions:
   contents: write
-
 jobs:
-  fix-portals:
+  fix:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Update result portal links
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Update links
         run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("gls-checker/src/App.js")
-          text = path.read_text()
-
-          old = '''    const newCodesMsg =
-          `${codesSection}
-
-          🌐 Check results at:
-          eresults.waecgh.org (WASSCE)
-          bece.waecgh.org (BECE)`;'''
-
-          # Match the live file's template literal without depending on indentation
-          old_exact = '''    const newCodesMsg =
-`${codesSection}
-
-🌐 Check results at:
-eresults.waecgh.org (WASSCE)
-bece.waecgh.org (BECE)`;'''
-
-          new = '''    let portalSection = "🌐 Check results at:";
-
-    if (wCheckers.length > 0) {
-      portalSection += "\\nWASSCE: https://ghana.waecdirect.org/";
-    }
-
-    if (bCheckers.length > 0) {
-      portalSection += "\\nBECE: https://eresults.waecgh.org";
-    }
-
-    const newCodesMsg =
-`${codesSection}
-
-${portalSection}`;'''
-
-          if old_exact not in text:
-              print("Old portal block not found; nothing to change.")
-          else:
-              path.write_text(text.replace(old_exact, new, 1))
-              print("Updated result portal links.")
-          PY
-
-      - name: Commit change if needed
+          python -c 'from pathlib import Path; p=Path("gls-checker/src/App.js"); s=p.read_text(); old="    const newCodesMsg =\n`\${codesSection}\n\n🌐 Check results at:\neresults.waecgh.org (WASSCE)\nbece.waecgh.org (BECE)`;"; new="    let portalSection = \"🌐 Check results at:\";\n\n    if (wCheckers.length > 0) {\n      portalSection += \"\\nWASSCE: https://ghana.waecdirect.org/\";\n    }\n\n    if (bCheckers.length > 0) {\n      portalSection += \"\\nBECE: https://eresults.waecgh.org\";\n    }\n\n    const newCodesMsg =\n`\${codesSection}\n\n\${portalSection}`;"; assert old in s, "portal block not found"; p.write_text(s.replace(old,new,1))'
+      - name: Commit
         run: |
-          if git diff --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add gls-checker/src/App.js
