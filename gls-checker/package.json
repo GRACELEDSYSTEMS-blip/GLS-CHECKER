@@ -6,7 +6,8 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",
-    "firebase": "^10.7.0"
+    "firebase": "^10.7.0",
+    "pdfjs-dist": "3.11.174"
   },
   "scripts": {
     "start": "react-scripts start",
