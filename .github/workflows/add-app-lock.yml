@@ -1,0 +1,106 @@
+name: Add GLS App Lock
+
+on:
+  push:
+    paths:
+      - '.github/workflows/add-app-lock.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add security gate to app
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('gls-checker/src/App.js')
+          s = p.read_text()
+
+          old_import = 'import { doc, getDoc, setDoc } from "firebase/firestore";\n'
+          new_import = old_import + 'import SecurityGate from "./SecurityGate";\n'
+          assert old_import in s, 'Firebase import target not found'
+          if 'import SecurityGate from "./SecurityGate";' not in s:
+              s = s.replace(old_import, new_import, 1)
+
+          app_start = 'export default function App() {\n  const [tab, setTab] = useState("deliver");'
+          app_new = 'export default function App() {\n  const [securityUnlocked, setSecurityUnlocked] = useState(false);\n  const [tab, setTab] = useState("deliver");'
+          assert app_start in s, 'App start target not found'
+          if 'const [securityUnlocked, setSecurityUnlocked]' not in s:
+              s = s.replace(app_start, app_new, 1)
+
+          stock_block = '''  const [stockView, setStockView] = useState({
+    wassce: "unused",
+    bece: "unused",
+  });
+'''
+          security_effect = '''  const [stockView, setStockView] = useState({
+    wassce: "unused",
+    bece: "unused",
+  });
+
+  // Lock again after 5 minutes of inactivity or after being away for 1 minute.
+  useEffect(() => {
+    if (!securityUnlocked) return undefined;
+
+    let inactivityTimer;
+    let hiddenAt = null;
+
+    const lock = () => setSecurityUnlocked(false);
+    const resetTimer = () => {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(lock, 5 * 60 * 1000);
+    };
+    const handleVisibility = () => {
+      if (document.hidden) {
+        hiddenAt = Date.now();
+      } else {
+        if (hiddenAt && Date.now() - hiddenAt >= 60 * 1000) {
+          lock();
+          return;
+        }
+        hiddenAt = null;
+        resetTimer();
+      }
+    };
+
+    const events = ["pointerdown", "keydown", "touchstart"];
+    events.forEach((name) => window.addEventListener(name, resetTimer, { passive: true }));
+    document.addEventListener("visibilitychange", handleVisibility);
+    resetTimer();
+
+    return () => {
+      clearTimeout(inactivityTimer);
+      events.forEach((name) => window.removeEventListener(name, resetTimer));
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [securityUnlocked]);
+'''
+          assert stock_block in s, 'Stock state target not found'
+          if 'Lock again after 5 minutes of inactivity' not in s:
+              s = s.replace(stock_block, security_effect, 1)
+
+          loading = '  if (!loaded) {\n'
+          secured_loading = '  if (!securityUnlocked) {\n    return <SecurityGate onUnlock={() => setSecurityUnlocked(true)} />;\n  }\n\n  if (!loaded) {\n'
+          assert loading in s, 'Loading return target not found'
+          if 'return <SecurityGate onUnlock=' not in s:
+              s = s.replace(loading, secured_loading, 1)
+
+          p.write_text(s)
+          PY
+      - name: Build app
+        working-directory: gls-checker
+        run: |
+          npm ci
+          npm run build
+      - name: Commit app lock
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add gls-checker/src/App.js gls-checker/src/SecurityGate.js
+          git diff --cached --quiet || git commit -m 'Add PIN and biometric lock screen'
+          git push
