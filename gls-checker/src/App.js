@@ -764,12 +764,20 @@ export default function App() {
 
     const totalQty = wQty + bQty;
 
+    let portalSection = "🌐 Check results at:";
+
+    if (wCheckers.length > 0) {
+      portalSection += "\nWASSCE: https://ghana.waecdirect.org/";
+    }
+
+    if (bCheckers.length > 0) {
+      portalSection += "\nBECE: https://eresults.waecgh.org";
+    }
+
     const newCodesMsg =
 `${codesSection}
 
-🌐 Check results at:
-eresults.waecgh.org (WASSCE)
-bece.waecgh.org (BECE)`;
+${portalSection}`;
 
     // ── BUILD BRANDED MESSAGE ──
     const msg =
