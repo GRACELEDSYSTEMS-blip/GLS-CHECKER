@@ -1,0 +1,73 @@
+name: Add PWA Icons
+
+on:
+  push:
+    paths:
+      - '.github/workflows/add-pwa-icons.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate app icons and update PWA metadata
+        run: |
+          python - <<'PY'
+          from PIL import Image, ImageDraw, ImageFont
+          from pathlib import Path
+          import json
+
+          public = Path('gls-checker/public')
+          public.mkdir(parents=True, exist_ok=True)
+
+          def make_icon(size, path):
+              bg = (10, 31, 92, 255)
+              gold = (241, 190, 38, 255)
+              white = (255, 255, 255, 255)
+              img = Image.new('RGBA', (size, size), bg)
+              d = ImageDraw.Draw(img)
+              margin = int(size * 0.10)
+              d.rounded_rectangle((margin, margin, size-margin, size-margin), radius=int(size*0.18), outline=gold, width=max(4, int(size*0.035)))
+              try:
+                  font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', int(size*0.26))
+                  small = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', int(size*0.065))
+              except:
+                  font = ImageFont.load_default()
+                  small = ImageFont.load_default()
+              text = 'GLS'
+              box = d.textbbox((0,0), text, font=font)
+              tw, th = box[2]-box[0], box[3]-box[1]
+              d.text(((size-tw)/2, size*0.30), text, font=font, fill=white)
+              label = 'CHECKER'
+              box2 = d.textbbox((0,0), label, font=small)
+              lw = box2[2]-box2[0]
+              d.text(((size-lw)/2, size*0.64), label, font=small, fill=gold)
+              img.save(path)
+
+          make_icon(192, public/'icon-192.png')
+          make_icon(512, public/'icon-512.png')
+
+          manifest_path = public/'manifest.json'
+          manifest = json.loads(manifest_path.read_text())
+          manifest['icons'] = [
+              {'src':'/icon-192.png','sizes':'192x192','type':'image/png','purpose':'any maskable'},
+              {'src':'/icon-512.png','sizes':'512x512','type':'image/png','purpose':'any maskable'}
+          ]
+          manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
+
+          index_path = public/'index.html'
+          html = index_path.read_text()
+          if 'rel="manifest"' not in html:
+              html = html.replace('<title>GLS Checker — Grace-Led Systems</title>', '<link rel="manifest" href="/manifest.json" />\n    <link rel="apple-touch-icon" href="/icon-192.png" />\n    <meta name="apple-mobile-web-app-capable" content="yes" />\n    <meta name="apple-mobile-web-app-status-bar-style" content="default" />\n    <meta name="apple-mobile-web-app-title" content="GLS Checker" />\n    <title>GLS Checker — Grace-Led Systems</title>')
+          index_path.write_text(html)
+          PY
+      - name: Commit generated assets
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add gls-checker/public/icon-192.png gls-checker/public/icon-512.png gls-checker/public/manifest.json gls-checker/public/index.html
+          git diff --cached --quiet || git commit -m 'Add GLS PWA app icons and install metadata'
+          git push
