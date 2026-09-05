@@ -13,85 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Add security gate to app
+      - name: Patch App.js
         run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          p = Path('gls-checker/src/App.js')
-          s = p.read_text()
-
-          old_import = 'import { doc, getDoc, setDoc } from "firebase/firestore";\n'
-          new_import = old_import + 'import SecurityGate from "./SecurityGate";\n'
-          assert old_import in s, 'Firebase import target not found'
-          if 'import SecurityGate from "./SecurityGate";' not in s:
-              s = s.replace(old_import, new_import, 1)
-
-          app_start = 'export default function App() {\n  const [tab, setTab] = useState("deliver");'
-          app_new = 'export default function App() {\n  const [securityUnlocked, setSecurityUnlocked] = useState(false);\n  const [tab, setTab] = useState("deliver");'
-          assert app_start in s, 'App start target not found'
-          if 'const [securityUnlocked, setSecurityUnlocked]' not in s:
-              s = s.replace(app_start, app_new, 1)
-
-          stock_block = '''  const [stockView, setStockView] = useState({
-    wassce: "unused",
-    bece: "unused",
-  });
-'''
-          security_effect = '''  const [stockView, setStockView] = useState({
-    wassce: "unused",
-    bece: "unused",
-  });
-
-  // Lock again after 5 minutes of inactivity or after being away for 1 minute.
-  useEffect(() => {
-    if (!securityUnlocked) return undefined;
-
-    let inactivityTimer;
-    let hiddenAt = null;
-
-    const lock = () => setSecurityUnlocked(false);
-    const resetTimer = () => {
-      clearTimeout(inactivityTimer);
-      inactivityTimer = setTimeout(lock, 5 * 60 * 1000);
-    };
-    const handleVisibility = () => {
-      if (document.hidden) {
-        hiddenAt = Date.now();
-      } else {
-        if (hiddenAt && Date.now() - hiddenAt >= 60 * 1000) {
-          lock();
-          return;
-        }
-        hiddenAt = null;
-        resetTimer();
-      }
-    };
-
-    const events = ["pointerdown", "keydown", "touchstart"];
-    events.forEach((name) => window.addEventListener(name, resetTimer, { passive: true }));
-    document.addEventListener("visibilitychange", handleVisibility);
-    resetTimer();
-
-    return () => {
-      clearTimeout(inactivityTimer);
-      events.forEach((name) => window.removeEventListener(name, resetTimer));
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [securityUnlocked]);
-'''
-          assert stock_block in s, 'Stock state target not found'
-          if 'Lock again after 5 minutes of inactivity' not in s:
-              s = s.replace(stock_block, security_effect, 1)
-
-          loading = '  if (!loaded) {\n'
-          secured_loading = '  if (!securityUnlocked) {\n    return <SecurityGate onUnlock={() => setSecurityUnlocked(true)} />;\n  }\n\n  if (!loaded) {\n'
-          assert loading in s, 'Loading return target not found'
-          if 'return <SecurityGate onUnlock=' not in s:
-              s = s.replace(loading, secured_loading, 1)
-
-          p.write_text(s)
-          PY
+          echo 'CmZyb20gcGF0aGxpYiBpbXBvcnQgUGF0aAoKcCA9IFBhdGgoImdscy1jaGVja2VyL3NyYy9BcHAuanMiKQpzID0gcC5yZWFkX3RleHQoKQoKb2xkX2ltcG9ydCA9ICdpbXBvcnQgeyBkb2MsIGdldERvYywgc2V0RG9jIH0gZnJvbSAiLi9maXJlYmFzZS9maXJlc3RvcmUiO1xuJwpuZXdfaW1wb3J0ID0gb2xkX2ltcG9ydCArICdpbXBvcnQgU2VjdXJpdHlHYXRlIGZyb20gIi4vU2VjdXJpdHlHYXRlIjtcbicKYXNzZXJ0IG9sZF9pbXBvcnQgaW4gcywgIkZpcmViYXNlIGltcG9ydCB0YXJnZXQgbm90IGZvdW5kIgppZiAnaW1wb3J0IFNlY3VyaXR5R2F0ZSBmcm9tICIuL1NlY3VyaXR5R2F0ZSI7JyBub3QgaW4gczoKICAgIHMgPSBzLnJlcGxhY2Uob2xkX2ltcG9ydCwgbmV3X2ltcG9ydCwgMSkKCmFwcF9zdGFydCA9ICdleHBvcnQgZGVmYXVsdCBmdW5jdGlvbiBBcHAoKSB7XG4gIGNvbnN0IFt0YWIsIHNldFRhYl0gPSB1c2VTdGF0ZSgiZGVsaXZlciIpOycKYXBwX25ldyA9ICdleHBvcnQgZGVmYXVsdCBmdW5jdGlvbiBBcHAoKSB7XG4gIGNvbnN0IFtzZWN1cml0eVVubG9ja2VkLCBzZXRTZWN1cml0eVVubG9ja2VkXSA9IHVzZVN0YXRlKGZhbHNlKTtcbiAgY29uc3QgW3RhYiwgc2V0VGFiXSA9IHVzZVN0YXRlKCJkZWxpdmVyIik7Jwphc3NlcnQgYXBwX3N0YXJ0IGluIHMsICJBcHAgc3RhcnQgdGFyZ2V0IG5vdCBmb3VuZCIKaWYgImNvbnN0IFtzZWN1cml0eVVubG9ja2VkLCBzZXRTZWN1cml0eVVubG9ja2VkXSIgbm90IGluIHM6CiAgICBzID0gcy5yZXBsYWNlKGFwcF9zdGFydCwgYXBwX25ldywgMSkKCnN0b2NrX2Jsb2NrID0gJycnICBjb25zdCBbc3RvY2tWaWV3LCBzZXRTdG9ja1ZpZXddID0gdXNlU3RhdGUoewogICAgd2Fzc2NlOiAidW51c2VkIiwKICAgIGJlY2U6ICJ1bnVzZWQiLAogIH0pOwonJycKc2VjdXJpdHlfZWZmZWN0ID0gJycnICBjb25zdCBbc3RvY2tWaWV3LCBzZXRTdG9ja1ZpZXddID0gdXNlU3RhdGUoewogICAgd2Fzc2NlOiAidW51c2VkIiwKICAgIGJlY2U6ICJ1bnVzZWQiLAogIH0pOwoKICAvLyBMb2NrIGFnYWluIGFmdGVyIDUgbWludXRlcyBvZiBpbmFjdGl2aXR5IG9yIGFmdGVyIGJlaW5nIGF3YXkgZm9yIDEgbWludXRlLgogIHVzZUVmZmVjdCgoKSA9PiB7CiAgICBpZiAoIXNlY3VyaXR5VW5sb2NrZWQpIHJldHVybiB1bmRlZmluZWQ7CgogICAgbGV0IGluYWN0aXZpdHlUaW1lcjsKICAgIGxldCBoaWRkZW5BdCA9IG51bGw7CgogICAgY29uc3QgbG9jayA9ICgpID0+IHNldFNlY3VyaXR5VW5sb2NrZWQoZmFsc2UpOwogICAgY29uc3QgcmVzZXRUaW1lciA9ICgpID0+IHsKICAgICAgY2xlYXJUaW1lb3V0KGluYWN0aXZpdHlUaW1lcik7CiAgICAgIGluYWN0aXZpdHlUaW1lciA9IHNldFRpbWVvdXQobG9jaywgNSAqIDYwICogMTAwMCk7CiAgICB9OwogICAgY29uc3QgaGFuZGxlVmlzaWJpbGl0eSA9ICgpID0+IHsKICAgICAgaWYgKGRvY3VtZW50LmhpZGRlbikgewogICAgICAgIGhpZGRlbkF0ID0gRGF0ZS5ub3coKTsKICAgICAgfSBlbHNlIHsKICAgICAgICBpZiAoaGlkZGVuQXQgJiYgRGF0ZS5ub3coKSAtIGhpZGRlbkF0ID49IDYwICogMTAwMCkgewogICAgICAgICAgbG9jaygpOwogICAgICAgICAgcmV0dXJuOwogICAgICAgIH0KICAgICAgICBoaWRkZW5BdCA9IG51bGw7CiAgICAgICAgcmVzZXRUaW1lcigpOwogICAgICB9CiAgICB9OwoKICAgIGNvbnN0IGV2ZW50cyA9IFsicG9pbnRlcmRvd24iLCAia2V5ZG93biIsICJ0b3VjaHN0YXJ0Il07CiAgICBldmVudHMuZm9yRWFjaCgobmFtZSkgPT4gd2luZG93LmFkZEV2ZW50TGlzdGVuZXIobmFtZSwgcmVzZXRUaW1lciwgeyBwYXNzaXZlOiB0cnVlIH0pKTsKICAgIGRvY3VtZW50LmFkZEV2ZW50TGlzdGVuZXIoInZpc2liaWxpdHljaGFuZ2UiLCBoYW5kbGVWaXNpYmlsaXR5KTsKICAgIHJlc2V0VGltZXIoKTsKCiAgICByZXR1cm4gKCkgPT4gewogICAgICBjbGVhclRpbWVvdXQoaW5hY3Rpdml0eVRpbWVyKTsKICAgICAgZXZlbnRzLmZvckVhY2goKG5hbWUpID0+IHdpbmRvdy5yZW1vdmVFdmVudExpc3RlbmVyKG5hbWUsIHJlc2V0VGltZXIpKTsKICAgICAgZG9jdW1lbnQucmVtb3ZlRXZlbnRMaXN0ZW5lcigidmlzaWJpbGl0eWNoYW5nZSIsIGhhbmRsZVZpc2liaWxpdHkpOwogICAgfTsKICB9LCBbc2VjdXJpdHlVbmxvY2tlZF0pOwonJycKYXNzZXJ0IHN0b2NrX2Jsb2NrIGluIHMsICJTdG9jayBzdGF0ZSB0YXJnZXQgbm90IGZvdW5kIgppZiAiTG9jayBhZ2FpbiBhZnRlciA1IG1pbnV0ZXMgb2YgaW5hY3Rpdml0eSIgbm90IGluIHM6CiAgICBzID0gcy5yZXBsYWNlKHN0b2NrX2Jsb2NrLCBzZWN1cml0eV9lZmZlY3QsIDEpCgpsb2FkaW5nID0gJyAgaWYgKCFsb2FkZWQpIHtcbicKc2VjdXJlZF9sb2FkaW5nID0gJyAgaWYgKCFzZWN1cml0eVVubG9ja2VkKSB7XG4gICAgcmV0dXJuIDxTZWN1cml0eUdhdGUgb25VbmxvY2s9eygpID0+IHNldFNlY3VyaXR5VW5sb2NrZWQodHJ1ZSl9IC8+O1xuICB9XG5cbiAgaWYgKCFsb2FkZWQpIHtcbicKYXNzZXJ0IGxvYWRpbmcgaW4gcywgIkxvYWRpbmcgcmV0dXJuIHRhcmdldCBub3QgZm91bmQiCmlmICJyZXR1cm4gPFNlY3VyaXR5R2F0ZSBvblVubG9jaz0iIG5vdCBpbiBzOgogICAgcyA9IHMucmVwbGFjZShsb2FkaW5nLCBzZWN1cmVkX2xvYWRpbmcsIDEpCgpwLndyaXRlX3RleHQocykK' | base64 -d > /tmp/patch_app.py
+          python /tmp/patch_app.py
       - name: Build app
         working-directory: gls-checker
         run: |
