@@ -1,0 +1,73 @@
+name: One-time result portal fix
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix-portals:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Update result portal links
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("gls-checker/src/App.js")
+          text = path.read_text()
+
+          old = '''    const newCodesMsg =
+          `${codesSection}
+
+          🌐 Check results at:
+          eresults.waecgh.org (WASSCE)
+          bece.waecgh.org (BECE)`;'''
+
+          # Match the live file's template literal without depending on indentation
+          old_exact = '''    const newCodesMsg =
+`${codesSection}
+
+🌐 Check results at:
+eresults.waecgh.org (WASSCE)
+bece.waecgh.org (BECE)`;'''
+
+          new = '''    let portalSection = "🌐 Check results at:";
+
+    if (wCheckers.length > 0) {
+      portalSection += "\\nWASSCE: https://ghana.waecdirect.org/";
+    }
+
+    if (bCheckers.length > 0) {
+      portalSection += "\\nBECE: https://eresults.waecgh.org";
+    }
+
+    const newCodesMsg =
+`${codesSection}
+
+${portalSection}`;'''
+
+          if old_exact not in text:
+              print("Old portal block not found; nothing to change.")
+          else:
+              path.write_text(text.replace(old_exact, new, 1))
+              print("Updated result portal links.")
+          PY
+
+      - name: Commit change if needed
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gls-checker/src/App.js
+          git commit -m "Fix WAEC result portal links"
+          git push
