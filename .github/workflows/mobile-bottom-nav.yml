@@ -17,139 +17,20 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-
+          import re
           p = Path('gls-checker/src/App.js')
           s = p.read_text()
-
-          old_body = '''  body: {
-    padding: "18px 14px",
-    maxWidth: 540,
-    margin: "0 auto",
-  },'''
-          new_body = '''  body: {
-    padding: "18px 14px 96px",
-    maxWidth: 540,
-    margin: "0 auto",
-  },
-
-  bottomNav: {
-    position: "fixed",
-    left: "50%",
-    bottom: 0,
-    transform: "translateX(-50%)",
-    width: "100%",
-    maxWidth: 540,
-    display: "grid",
-    gridTemplateColumns: "repeat(4, 1fr)",
-    background: "rgba(255,255,255,0.97)",
-    borderTop: "1px solid #E5E7EB",
-    boxShadow: "0 -8px 24px rgba(10,31,92,0.10)",
-    padding: "8px 8px max(8px, env(safe-area-inset-bottom))",
-    boxSizing: "border-box",
-    zIndex: 1000,
-    backdropFilter: "blur(12px)",
-  },
-
-  bottomNavBtn: (a) => ({
-    border: "none",
-    background: "transparent",
-    color: a ? "#0A1F5C" : "#8B93A7",
-    fontWeight: a ? 800 : 650,
-    fontSize: 10,
-    padding: "5px 2px 3px",
-    borderRadius: 12,
-    cursor: "pointer",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 3,
-    minHeight: 48,
-  }),
-
-  bottomNavIcon: (a) => ({
-    fontSize: 20,
-    lineHeight: 1,
-    transform: a ? "translateY(-1px)" : "none",
-  }),'''
-          if old_body not in s:
-              raise SystemExit('Body style target not found')
-          s = s.replace(old_body, new_body, 1)
-
-          old_tabs = '''        <div style={S.tabs}>
-          <button
-            style={S.tab(tab === "deliver")}
-            onClick={() => setTab("deliver")}
-          >
-            📲 DELIVER
-          </button>
-
-          <button
-            style={S.tab(tab === "stock")}
-            onClick={() => setTab("stock")}
-          >
-            📦 STOCK
-          </button>
-
-          <button
-            style={S.tab(tab === "finance")}
-            onClick={() => setTab("finance")}
-          >
-            💰 FINANCE
-          </button>
-
-          <button
-            style={S.tab(tab === "customers")}
-            onClick={() => setTab("customers")}
-          >
-            👥 CUSTOMERS
-          </button>
-        </div>
-'''
-          if old_tabs not in s:
-              raise SystemExit('Header tabs target not found')
-          s = s.replace(old_tabs, '', 1)
-
-          old_end = '''        )}
-      </div>
-    </div>
-  );
-}'''
-          new_end = '''        )}
-      </div>
-
-      <nav style={S.bottomNav} aria-label="Main navigation">
-        {[
-          ["deliver", "📲", "Deliver"],
-          ["stock", "📦", "Stock"],
-          ["finance", "💰", "Finance"],
-          ["customers", "👥", "Customers"],
-        ].map(([key, icon, label]) => {
-          const active = tab === key;
-          return (
-            <button
-              key={key}
-              type="button"
-              style={S.bottomNavBtn(active)}
-              onClick={() => {
-                setTab(key);
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-              aria-current={active ? "page" : undefined}
-            >
-              <span style={S.bottomNavIcon(active)}>{icon}</span>
-              <span>{label}</span>
-            </button>
-          );
-        })}
-      </nav>
-    </div>
-  );
-}'''
-          if old_end not in s:
-              raise SystemExit('App ending target not found')
-          s = s.replace(old_end, new_end, 1)
-
+          body_pat = r'  body: \{\n    padding: "18px 14px",\n    maxWidth: 540,\n    margin: "0 auto",\n  \},'
+          body_new = '  body: {\n    padding: "18px 14px 96px",\n    maxWidth: 540,\n    margin: "0 auto",\n  },\n\n  bottomNav: {\n    position: "fixed",\n    left: "50%",\n    bottom: 0,\n    transform: "translateX(-50%)",\n    width: "100%",\n    maxWidth: 540,\n    display: "grid",\n    gridTemplateColumns: "repeat(4, 1fr)",\n    background: "rgba(255,255,255,0.97)",\n    borderTop: "1px solid #E5E7EB",\n    boxShadow: "0 -8px 24px rgba(10,31,92,0.10)",\n    padding: "8px 8px max(8px, env(safe-area-inset-bottom))",\n    boxSizing: "border-box",\n    zIndex: 1000,\n    backdropFilter: "blur(12px)",\n  },\n\n  bottomNavBtn: (a) => ({\n    border: "none",\n    background: "transparent",\n    color: a ? "#0A1F5C" : "#8B93A7",\n    fontWeight: a ? 800 : 650,\n    fontSize: 10,\n    padding: "5px 2px 3px",\n    borderRadius: 12,\n    cursor: "pointer",\n    display: "flex",\n    flexDirection: "column",\n    alignItems: "center",\n    justifyContent: "center",\n    gap: 3,\n    minHeight: 48,\n  }),\n\n  bottomNavIcon: (a) => ({\n    fontSize: 20,\n    lineHeight: 1,\n    transform: a ? "translateY(-1px)" : "none",\n  }),' 
+          s, n = re.subn(body_pat, lambda m: body_new, s, count=1)
+          assert n == 1, 'Body style target not found'
+          tabs_pat = r'\n        <div style=\{S\.tabs\}>.*?\n        </div>\n      </div>\n\n      <div style=\{S\.body\}>'
+          s, n = re.subn(tabs_pat, '\n      </div>\n\n      <div style={S.body}>', s, count=1, flags=re.S)
+          assert n == 1, 'Header tabs target not found'
+          end_old = '        )}\n      </div>\n    </div>\n  );\n}'
+          end_new = '        )}\n      </div>\n\n      <nav style={S.bottomNav} aria-label="Main navigation">\n        {[\n          ["deliver", "📲", "Deliver"],\n          ["stock", "📦", "Stock"],\n          ["finance", "💰", "Finance"],\n          ["customers", "👥", "Customers"],\n        ].map(([key, icon, label]) => {\n          const active = tab === key;\n          return (\n            <button\n              key={key}\n              type="button"\n              style={S.bottomNavBtn(active)}\n              onClick={() => {\n                setTab(key);\n                window.scrollTo({ top: 0, behavior: "smooth" });\n              }}\n              aria-current={active ? "page" : undefined}\n            >\n              <span style={S.bottomNavIcon(active)}>{icon}</span>\n              <span>{label}</span>\n            </button>\n          );\n        })}\n      </nav>\n    </div>\n  );\n}'
+          assert end_old in s, 'App ending target not found'
+          s = s.replace(end_old, end_new, 1)
           p.write_text(s)
           PY
       - name: Build app
