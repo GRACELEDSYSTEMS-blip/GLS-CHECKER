@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { db } from "./firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
+import SecurityGate from "./SecurityGate";
 
 // ── FIRESTORE HELPERS ────────────────────────────────────
 async function loadData(key) {
@@ -543,6 +544,7 @@ const S = {
 };
 
 export default function App() {
+  const [securityUnlocked, setSecurityUnlocked] = useState(false);
   const [tab, setTab] = useState("deliver");
 
   const [pool, setPool] = useState({
@@ -584,6 +586,43 @@ export default function App() {
     wassce: "unused",
     bece: "unused",
   });
+
+  // Lock again after 5 minutes of inactivity or after being away for 1 minute.
+  useEffect(() => {
+    if (!securityUnlocked) return undefined;
+
+    let inactivityTimer;
+    let hiddenAt = null;
+
+    const lock = () => setSecurityUnlocked(false);
+    const resetTimer = () => {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(lock, 5 * 60 * 1000);
+    };
+    const handleVisibility = () => {
+      if (document.hidden) {
+        hiddenAt = Date.now();
+      } else {
+        if (hiddenAt && Date.now() - hiddenAt >= 60 * 1000) {
+          lock();
+          return;
+        }
+        hiddenAt = null;
+        resetTimer();
+      }
+    };
+
+    const events = ["pointerdown", "keydown", "touchstart"];
+    events.forEach((name) => window.addEventListener(name, resetTimer, { passive: true }));
+    document.addEventListener("visibilitychange", handleVisibility);
+    resetTimer();
+
+    return () => {
+      clearTimeout(inactivityTimer);
+      events.forEach((name) => window.removeEventListener(name, resetTimer));
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [securityUnlocked]);
 
   // ── LOAD DATA FROM FIRESTORE ──────────────────────────
   useEffect(() => {
@@ -1331,6 +1370,10 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
       "GLS_Sales_Export.csv";
 
     a.click();
+  }
+
+  if (!securityUnlocked) {
+    return <SecurityGate onUnlock={() => setSecurityUnlocked(true)} />;
   }
 
   if (!loaded) {
