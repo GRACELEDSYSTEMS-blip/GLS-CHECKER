@@ -1,0 +1,166 @@
+name: Mobile Bottom Navigation
+
+on:
+  push:
+    paths:
+      - '.github/workflows/mobile-bottom-nav.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update mobile navigation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('gls-checker/src/App.js')
+          s = p.read_text()
+
+          old_body = '''  body: {
+    padding: "18px 14px",
+    maxWidth: 540,
+    margin: "0 auto",
+  },'''
+          new_body = '''  body: {
+    padding: "18px 14px 96px",
+    maxWidth: 540,
+    margin: "0 auto",
+  },
+
+  bottomNav: {
+    position: "fixed",
+    left: "50%",
+    bottom: 0,
+    transform: "translateX(-50%)",
+    width: "100%",
+    maxWidth: 540,
+    display: "grid",
+    gridTemplateColumns: "repeat(4, 1fr)",
+    background: "rgba(255,255,255,0.97)",
+    borderTop: "1px solid #E5E7EB",
+    boxShadow: "0 -8px 24px rgba(10,31,92,0.10)",
+    padding: "8px 8px max(8px, env(safe-area-inset-bottom))",
+    boxSizing: "border-box",
+    zIndex: 1000,
+    backdropFilter: "blur(12px)",
+  },
+
+  bottomNavBtn: (a) => ({
+    border: "none",
+    background: "transparent",
+    color: a ? "#0A1F5C" : "#8B93A7",
+    fontWeight: a ? 800 : 650,
+    fontSize: 10,
+    padding: "5px 2px 3px",
+    borderRadius: 12,
+    cursor: "pointer",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    minHeight: 48,
+  }),
+
+  bottomNavIcon: (a) => ({
+    fontSize: 20,
+    lineHeight: 1,
+    transform: a ? "translateY(-1px)" : "none",
+  }),'''
+          if old_body not in s:
+              raise SystemExit('Body style target not found')
+          s = s.replace(old_body, new_body, 1)
+
+          old_tabs = '''        <div style={S.tabs}>
+          <button
+            style={S.tab(tab === "deliver")}
+            onClick={() => setTab("deliver")}
+          >
+            📲 DELIVER
+          </button>
+
+          <button
+            style={S.tab(tab === "stock")}
+            onClick={() => setTab("stock")}
+          >
+            📦 STOCK
+          </button>
+
+          <button
+            style={S.tab(tab === "finance")}
+            onClick={() => setTab("finance")}
+          >
+            💰 FINANCE
+          </button>
+
+          <button
+            style={S.tab(tab === "customers")}
+            onClick={() => setTab("customers")}
+          >
+            👥 CUSTOMERS
+          </button>
+        </div>
+'''
+          if old_tabs not in s:
+              raise SystemExit('Header tabs target not found')
+          s = s.replace(old_tabs, '', 1)
+
+          old_end = '''        )}
+      </div>
+    </div>
+  );
+}'''
+          new_end = '''        )}
+      </div>
+
+      <nav style={S.bottomNav} aria-label="Main navigation">
+        {[
+          ["deliver", "📲", "Deliver"],
+          ["stock", "📦", "Stock"],
+          ["finance", "💰", "Finance"],
+          ["customers", "👥", "Customers"],
+        ].map(([key, icon, label]) => {
+          const active = tab === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              style={S.bottomNavBtn(active)}
+              onClick={() => {
+                setTab(key);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              aria-current={active ? "page" : undefined}
+            >
+              <span style={S.bottomNavIcon(active)}>{icon}</span>
+              <span>{label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}'''
+          if old_end not in s:
+              raise SystemExit('App ending target not found')
+          s = s.replace(old_end, new_end, 1)
+
+          p.write_text(s)
+          PY
+      - name: Build app
+        working-directory: gls-checker
+        run: |
+          npm ci
+          npm run build
+      - name: Commit update
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add gls-checker/src/App.js
+          git diff --cached --quiet || git commit -m 'Add app-style mobile bottom navigation'
+          git push
