@@ -1,0 +1,11 @@
+{
+  "short_name": "GLS Checker",
+  "name": "GLS Checker — Grace-Led Systems",
+  "description": "Grace-Led Systems result checker stock, delivery, customer and finance manager.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0A1F5C",
+  "theme_color": "#0A1F5C",
+  "orientation": "portrait-primary"
+}
