@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from "react";
 import { db } from "./firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import SecurityGate from "./SecurityGate";
+import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
+
+GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
 // ── FIRESTORE HELPERS ────────────────────────────────────
 async function loadData(key) {
@@ -576,6 +579,8 @@ export default function App() {
   const [uploadType, setUploadType] = useState("WASSCE");
   const [uploadMsg, setUploadMsg] = useState("");
   const [uploadErr, setUploadErr] = useState("");
+  const [pendingUpload, setPendingUpload] = useState(null);
+  const [uploadBusy, setUploadBusy] = useState(false);
 
   const fileRef = useRef();
 
@@ -661,51 +666,108 @@ export default function App() {
     setSyncing(false);
   }
 
-  // ── UPLOAD CSV ────────────────────────────────────────
-  function handleFile(file) {
+  // ── UPLOAD PDF / CSV ─────────────────────────────────
+  async function handleFile(file) {
     if (!file) return;
 
-    const reader = new FileReader();
+    setUploadErr("");
+    setUploadMsg("");
+    setPendingUpload(null);
+    setUploadBusy(true);
 
-    reader.onload = async (e) => {
-      const codes = parseCSV(e.target.result);
+    try {
+      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      let codes = [];
+      let detectedType = null;
+
+      if (isPdf) {
+        const parsed = await parseCheckerPDF(file);
+        codes = parsed.codes;
+        detectedType = parsed.detectedType;
+      } else {
+        const text = await file.text();
+        codes = parseCSV(text);
+      }
 
       if (codes.length === 0) {
-        setUploadErr("No valid codes found.");
+        setUploadErr(
+          isPdf
+            ? "No checker Serial/PIN pairs were found in this PDF."
+            : "No valid codes found in this CSV."
+        );
         return;
       }
 
-      const key = uploadType.toLowerCase();
-      const existing = pool[key] || [];
+      const type = detectedType || uploadType;
+      const key = type.toLowerCase();
+      const allExistingSerials = new Set([
+        ...(pool.wassce || []).map((c) => c.serial.toUpperCase()),
+        ...(pool.bece || []).map((c) => c.serial.toUpperCase()),
+      ]);
+      const seen = new Set();
+      const valid = [];
+      let duplicates = 0;
+      let invalid = 0;
 
-      const existingSerials = new Set(
-        existing.map((c) => c.serial)
-      );
+      codes.forEach((code) => {
+        const serial = String(code.serial || "").trim().toUpperCase();
+        const pin = String(code.pin || "").trim();
+        const isValid = /^[A-Z0-9-]{5,40}$/.test(serial) && /^\d{6,20}$/.test(pin);
 
-      const fresh = codes.filter(
-        (c) => !existingSerials.has(c.serial)
-      );
+        if (!isValid) {
+          invalid += 1;
+          return;
+        }
 
-      const newPool = {
-        ...pool,
-        [key]: [...existing, ...fresh],
-      };
+        if (seen.has(serial) || allExistingSerials.has(serial)) {
+          duplicates += 1;
+          return;
+        }
 
-      await persistPool(newPool);
+        seen.add(serial);
+        valid.push({ serial, pin, used: false });
+      });
 
-      setUploadMsg(
-        `✅ ${fresh.length} ${uploadType} checker${
-          fresh.length > 1 ? "s" : ""
-        } loaded!`
-      );
+      setPendingUpload({
+        fileName: file.name,
+        source: isPdf ? "PDF" : "CSV",
+        type,
+        codes: valid,
+        found: codes.length,
+        duplicates,
+        invalid,
+      });
 
-      setUploadErr("");
+      if (detectedType && detectedType !== uploadType) {
+        setUploadType(detectedType);
+      }
+    } catch (error) {
+      console.error(error);
+      setUploadErr("Could not read this file. Please try the original retailer PDF or a CSV file.");
+    } finally {
+      setUploadBusy(false);
+    }
+  }
 
-      setTimeout(() => setUploadMsg(""), 4000);
+  async function confirmPendingUpload() {
+    if (!pendingUpload || pendingUpload.codes.length === 0) return;
+
+    const key = pendingUpload.type.toLowerCase();
+    const newPool = {
+      ...pool,
+      [key]: [...(pool[key] || []), ...pendingUpload.codes],
     };
 
-    reader.readAsText(file);
-  }  // ── DELIVER ────────────────────────────────────────────
+    await persistPool(newPool);
+
+    const count = pendingUpload.codes.length;
+    setUploadMsg(`✅ ${count} ${pendingUpload.type} checker${count === 1 ? "" : "s"} added to Unused Stock.`);
+    setPendingUpload(null);
+    setUploadErr("");
+    setTimeout(() => setUploadMsg(""), 5000);
+  }
+
+  // ── DELIVER ────────────────────────────────────────────
   async function deliver() {
     setDeliverErr("");
 
@@ -1934,7 +1996,7 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
               <div style={S.goldBar} />
 
               <div style={S.secTitle}>
-                <UploadIcon /> Upload Checker CSV
+                <UploadIcon /> Upload Checker PDF / CSV
               </div>
 
               {uploadMsg && (
@@ -1993,7 +2055,7 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
                     fontSize: 14,
                   }}
                 >
-                  Tap to upload CSV file
+                  {uploadBusy ? "Reading file…" : "Tap to upload PDF or CSV"}
                 </div>
 
                 <div
@@ -2007,10 +2069,73 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
                 </div>
               </div>
 
+              {pendingUpload && (
+                <div
+                  style={{
+                    background: "#F8FAFC",
+                    border: "1.5px solid #D9DEE8",
+                    borderRadius: 12,
+                    padding: 14,
+                    marginBottom: 14,
+                  }}
+                >
+                  <div style={{ fontWeight: 900, color: "#0A1F5C", marginBottom: 6 }}>
+                    Review before adding to stock
+                  </div>
+                  <div style={{ fontSize: 12, color: "#6B7280", lineHeight: 1.8 }}>
+                    📄 {pendingUpload.fileName}<br />
+                    🎓 {pendingUpload.type} · {pendingUpload.source}<br />
+                    ✅ {pendingUpload.codes.length} new checker{pendingUpload.codes.length === 1 ? "" : "s"}<br />
+                    🔁 {pendingUpload.duplicates} duplicate{pendingUpload.duplicates === 1 ? "" : "s"} skipped<br />
+                    ⚠️ {pendingUpload.invalid} invalid entr{pendingUpload.invalid === 1 ? "y" : "ies"} skipped
+                  </div>
+
+                  {pendingUpload.codes.length > 0 ? (
+                    <>
+                      <div
+                        style={{
+                          marginTop: 10,
+                          maxHeight: 150,
+                          overflowY: "auto",
+                          background: "#fff",
+                          borderRadius: 9,
+                          padding: "8px 10px",
+                          fontFamily: "monospace",
+                          fontSize: 11,
+                          lineHeight: 1.7,
+                        }}
+                      >
+                        {pendingUpload.codes.slice(0, 20).map((c) => (
+                          <div key={c.serial}>{c.serial} · {c.pin}</div>
+                        ))}
+                        {pendingUpload.codes.length > 20 && (
+                          <div>…and {pendingUpload.codes.length - 20} more</div>
+                        )}
+                      </div>
+                      <button style={{ ...S.btnGold, marginTop: 12 }} onClick={confirmPendingUpload}>
+                        Add {pendingUpload.codes.length} to Unused Stock
+                      </button>
+                    </>
+                  ) : (
+                    <div style={{ ...S.errBox, marginTop: 10, marginBottom: 0 }}>
+                      Nothing new to add.
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    style={{ ...S.btnRed, width: "100%", marginTop: 8 }}
+                    onClick={() => setPendingUpload(nulk)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+
               <input
                 ref={fileRef}
                 type="file"
-                accept=".csv"
+                accept=".pdf,.csv,application/pdf,text/csv"
                 style={{ display: "none" }}
                 onChange={(e) => {
                   handleFile(e.target.files[0]);
