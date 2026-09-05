@@ -86,6 +86,39 @@ function parseCSV(text) {
 }
 
 // ── ICONS ────────────────────────────────────────────────
+async function parseCheckerPDF(file) {
+  const data = new Uint8Array(await file.arrayBuffer());
+  const pdf = await getDocument({ data }).promise;
+  const pages = [];
+
+  for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
+    const page = await pdf.getPage(pageNo);
+    const content = await page.getTextContent();
+    pages.push(content.items.map((item) => item.str).join("\n"));
+  }
+
+  const text = pages.join("\n");
+  const detectedType = /\bBECE\b/i.test(text)
+    ? "BECE"
+    : /\bWASSCE\b/i.test(text)
+      ? "WASSCE"
+      : null;
+
+  const codes = [];
+  const regex = /Serial\s*:\s*([A-Z0-9-]+)[\s\S]{0,100}?PIN\s*:\s*([0-9]{6,20})/gi;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    codes.push({
+      serial: match[1].trim(),
+      pin: match[2].trim(),
+      used: false,
+    });
+  }
+
+  return { codes, detectedType };
+}
+
 const Icon = ({ d, size = 18, color = "currentColor" }) => (
   <svg
     width={size}
