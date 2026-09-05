@@ -956,7 +956,7 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
     const label = key.toUpperCase();
 
     const nextSerial = window.prompt(
-      `Edit ${label} serial number:`,
+      `Step 1 of 2 — Edit ${label} serial number:`,
       checker.serial
     );
 
@@ -985,7 +985,7 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
     }
 
     const nextPin = window.prompt(
-      `Edit ${label} PIN:`,
+      `Step 2 of 2 — Edit ${label} PIN:`,
       checker.pin
     );
 
@@ -2244,7 +2244,7 @@ Thank you for choosing GRACE-LED SYSTEMS!`;
                                   )
                                 }
                               >
-                                ✏️ Edit
+                                ✏️ Edit Serial & PIN
                               </button>
 
                               {c.used && (
