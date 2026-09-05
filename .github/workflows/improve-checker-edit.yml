@@ -1,0 +1,35 @@
+name: Improve checker edit UX
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  edit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make serial and PIN editing explicit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('gls-checker/src/App.js')
+          s = p.read_text()
+          replacements = {
+            '`Edit ${label} serial number:`': '`Step 1 of 2 — Edit ${label} serial number:`',
+            '`Edit ${label} PIN:`': '`Step 2 of 2 — Edit ${label} PIN:`',
+            '>\n                                ✏️ Edit\n                              </button>': '>\n                                ✏️ Edit Serial & PIN\n                              </button>',
+          }
+          for old, new in replacements.items():
+              if old not in s:
+                  raise SystemExit(f'Expected text not found: {old}')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gls-checker/src/App.js
+          git commit -m "Make checker serial and PIN editing explicit"
+          git push
